@@ -27,6 +27,11 @@ Parameters:
       carries out the backup activities.
     Type: String
     Default: AWSBackupSolutionRole
+  HourlyBackupSchedule:
+    Description: The CRON job to initiate backup jobs. For example, cron(0 * ? * *
+      *) for hourly, every day at the top of the hour.
+    Type: String
+    Default: cron(0 * ? * * *)
   DailyBackupSchedule:
     Description: The CRON job to initiate backup jobs. For example, cron(0 5 ? * *
       *) for daily, every day at 05:00 UTC.
@@ -42,6 +47,16 @@ Parameters:
     ConstraintDescription: The name of the member account Backup vaults. (Name is case sensitive).
     Type: String
     Default: AWSBackupSolutionVault
+  pBackupTagKey0:
+    Type: String
+    Description: The backup tag key to automatically assign resources to a backup
+      plan across the member accounts.
+    Default: 'backup'
+  pBackupTagValue0:
+    Type: String
+    Description: The backup tag value to automatically assign resources to a backup
+      plan across the member accounts.
+    Default: 'hourly'
   pBackupTagKey1:
     Type: String
     Description: The backup tag key to automatically assign resources to a backup
@@ -111,6 +126,79 @@ Parameters:
     Default: Example Application
 
 Resources:
+  rOrgHourlyBackUpPolicy:
+    Type: AWS::Organizations::Policy
+    Properties:
+      Name: org-hourly-backup-policy
+      Description: >-
+        BackupPolicy for Hourly Backup as per the resource selection criteria
+      Type: BACKUP_POLICY
+      TargetIds: !Ref pOrgBackupTargetOUs
+      Content:
+        Fn::ToJsonString:
+          plans:
+            OrgBackupPlanHourly:
+              rules:
+                OrgHourlyBackupRule:
+                  schedule_expression:
+                    "@@assign": !Ref HourlyBackupSchedule
+                  start_backup_window_minutes:
+                    "@@assign": '5'
+                  complete_backup_window_minutes:
+                    "@@assign": '50'
+                  enable_continuous_backup:
+                    "@@assign": true
+                  lifecycle:
+                    delete_after_days:
+                      "@@assign": '8'
+                  target_backup_vault_name:
+                    "@@assign": !Ref pMemberAccountBackupVault
+                  recovery_point_tags:
+                    project:
+                      tag_key:
+                        "@@assign": !Ref pTagKey
+                      tag_value:
+                        "@@assign": !Ref pTagValue
+                  copy_actions:
+                    # Currently this must be hardcoded since [AWS Backup Policy syntax](https://docs.aws.amazon.com/organizations/latest/userguide/orgs_manage_policies_backup_syntax.html#backup-policy-syntax-reference) requires the name of this key to be the same as the target.
+                    "arn:aws:backup:us-east-2:322237685231:backup-vault:AWSBackupSolutionCentralVault":
+                      target_backup_vault_arn:
+                        "@@assign": !Ref pCentralBackupVaultArn
+                      lifecycle:
+                        delete_after_days:
+                          "@@assign": '8'
+              backup_plan_tags:
+                project:
+                  tag_key:
+                    "@@assign": !Ref pTagKey
+                  tag_value:
+                    "@@assign": !Ref pTagValue
+              regions:
+                "@@append": !Ref pRegions
+              selections:
+                tags:
+                  OrgHourlyBackupSelection:
+                    iam_role_arn:
+                      "@@assign": !Sub 'arn:aws:iam::$account:role/${pCrossAccountBackupRole}'
+                    tag_key:
+                      "@@assign": !Ref pBackupTagKey0
+                    tag_value:
+                      "@@assign":
+                      - !Ref pBackupTagValue0
+      Tags:
+      - Key: Application
+        Value: !Ref Application
+      - Key: CommitId
+        Value: !Ref CommitId
+      - Key: BusinessUnit
+        Value: !Ref BusinessUnit
+      - Key: CostCenter
+        Value: !Ref CostCenter
+      - Key: Environment
+        Value: !Ref Environment
+      - Key: ApplicationOwner
+        Value: !Ref ApplicationOwner
+
   rOrgDailyBackUpPolicy:
     Type: AWS::Organizations::Policy
     Properties:
